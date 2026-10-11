@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <dirent.h>
 #include <string.h>
@@ -63,9 +64,17 @@ int main(void)
         printf("  Device ID:  0x%04X\n", device);
         printf("  Class Code: 0x%06X\n", class_code);
 
-        snprintf(path, sizeof(path),
-                 "/sys/bus/pci/devices/%s/resource",
-                 entry->d_name);
+        // Read PCI BAR/resource information
+        int length = snprintf(path, sizeof(path),
+                              "/sys/bus/pci/devices/%s/resource",
+                              entry->d_name);
+
+        if (length < 0 || (size_t)length >= sizeof(path))
+        {
+            fprintf(stderr, "PCI device path too long\n");
+            closedir(dir);
+            return 1;
+        }
 
         FILE *resource = fopen(path, "r");
 
@@ -91,6 +100,55 @@ int main(void)
             }
 
             fclose(resource);
+        }
+
+        // Read PCIe link information
+        const char *link_fields[] = {
+            "current_link_speed",
+            "current_link_width",
+            "max_link_speed",
+            "max_link_width"};
+
+        const char *link_labels[] = {
+            "Current Link Speed",
+            "Current Link Width",
+            "Max Link Speed",
+            "Max Link Width"};
+
+        for (int i = 0; i < 4; i++)
+        {
+            int length = snprintf(path, sizeof(path),
+                                  "/sys/bus/pci/devices/%s/%s",
+                                  entry->d_name, link_fields[i]);
+
+            if (length < 0 || (size_t)length >= sizeof(path))
+            {
+                fprintf(stderr, "PCI device path too long\n");
+                closedir(dir);
+                return 1;
+            }
+
+            FILE *link_file = fopen(path, "r");
+
+            if (link_file == NULL)
+            {
+                printf("  %s: N/A\n", link_labels[i]);
+                continue;
+            }
+
+            char value[128];
+
+            if (fgets(value, sizeof(value), link_file) != NULL)
+            {
+                value[strcspn(value, "\n")] = '\0';
+                printf("  %s: %s\n", link_labels[i], value);
+            }
+            else
+            {
+                printf("  %s: N/A\n", link_labels[i]);
+            }
+
+            fclose(link_file);
         }
     }
 
